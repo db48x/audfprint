@@ -140,7 +140,7 @@ class Analyzer(object):
         # min time separation (traditionally 1, upped 2014-08-04)
         self.mindt = 2
         # max lookahead in time (LIMITED TO <64 IN LANDMARK2HASH)
-        self.targetdt = 63
+        self.targetdt = 65
         # global stores duration of most recently-read soundfile
         self.soundfiledur = 0.0
         # .. and total amount of sound processed
@@ -329,7 +329,7 @@ class Analyzer(object):
                 for peak in peaks_at[col]:
                     pairsthispeak = 0
                     for col2 in range(col + self.mindt,
-                                       min(scols, col + self.targetdt)):
+                                      min(scols, col + self.targetdt + 1)):
                         if pairsthispeak < self.maxpairsperpeak:
                             for peak2 in peaks_at[col2]:
                                 if abs(peak2 - peak) < self.targetdf:
@@ -337,7 +337,7 @@ class Analyzer(object):
                                     if pairsthispeak < self.maxpairsperpeak:
                                         # We have a pair!
                                         landmarks.append((col, peak,
-                                                          peak2, col2 - col))
+                                                          peak2, col2 - col - self.mindt))
                                         pairsthispeak += 1
 
         return landmarks
