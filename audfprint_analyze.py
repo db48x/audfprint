@@ -135,8 +135,8 @@ class Analyzer(object):
         # Limit the num of pairs we'll make from each peak (Fanout)
         self.maxpairsperpeak = 3
         # Values controlling peaks2landmarks
-        # +/- 31 bins in freq (LIMITED TO -32..31 IN LANDMARK2HASH)
-        self.targetdf = 31
+        # +/- 32 bins in freq (LIMITED TO -32..31 IN LANDMARK2HASH)
+        self.targetdf = 32
         # min time separation (traditionally 1, upped 2014-08-04)
         self.mindt = 2
         # max lookahead in time (LIMITED TO <64 IN LANDMARK2HASH)
@@ -332,7 +332,8 @@ class Analyzer(object):
                                       min(scols, col + self.targetdt + 1)):
                         if pairsthispeak < self.maxpairsperpeak:
                             for peak2 in peaks_at[col2]:
-                                if abs(peak2 - peak) < self.targetdf:
+                                df = peak2 - peak
+                                if -self.targetdf <= df and df < self.targetdf:
                                     # and abs(peak2-peak) + abs(col2-col) > 2 ):
                                     if pairsthispeak < self.maxpairsperpeak:
                                         # We have a pair!
