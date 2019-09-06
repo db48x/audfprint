@@ -277,7 +277,7 @@ class Analyzer(object):
         a_dec = (1 - 0.01 * (self.density * np.sqrt(self.n_hop / 352.8) / 35)) ** (1 / OVERSAMP)
         # Take spectrogram
         mywin = np.hanning(self.n_fft + 2)[1:-1]
-        sgram = np.abs(stft.stft(d, n_fft=self.n_fft,
+        sgram = np.abs(stft.stft(d, n_fft=self.n_fft+2,
                                  hop_length=self.n_hop,
                                  window=mywin))
         sgrammax = np.max(sgram)
@@ -289,10 +289,10 @@ class Analyzer(object):
             # zero.  Not good, but let's let it through for now.
             print("find_peaks: Warning: input signal is identically zero.")
         # High-pass filter onset emphasis
-        # [:-1,] discards top bin (nyquist) of sgram so bins fit in 8 bits
+        # [1:-1,] discards bottom (0hz) and top (nyquist) bins of sgram so bins fit in 8 bits
         sgram = np.array([scipy.signal.lfilter([1, -1],
                                                [1, -HPF_POLE ** (1 / OVERSAMP)], s_row)
-                          for s_row in sgram])[:-1, ]
+                          for s_row in sgram])[1:-1, ]
         # Prune to keep only local maxima in spectrum that appear above an online,
         # decaying threshold
         peaks = self._decaying_threshold_fwd_prune(sgram, a_dec)
