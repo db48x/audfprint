@@ -16,6 +16,7 @@ import scipy.signal
 
 # Don't sweat failure to import graphics support.
 try:
+    import matplotlib
     import matplotlib.pyplot as plt
     import librosa.display
 except:
@@ -416,57 +417,97 @@ class Matcher(object):
                 else:
                     msgrslt.append(qrymsg + "\t" + ht.names[tophitid])
                 if self.illustrate:
-                    self.illustrate_match(analyzer, ht, qry)
+                    self.illustrate_match(analyzer, ht, qry, rslts)
         return msgrslt
 
-    def illustrate_match(self, analyzer, ht, filename):
+    def illustrate_match(self, analyzer, ht, filename, results):
         """ Show the query fingerprints and the matching ones
             plotted over a spectrogram """
-        # Make the spectrogram
-        # d, sr = librosa.load(filename, sr=analyzer.target_sr)
-        d, sr = audio_read.audio_read(filename, sr=analyzer.target_sr, channels=1)
-        sgram = np.abs(stft.stft(d, n_fft=analyzer.n_fft,
-                                 hop_length=analyzer.n_hop,
-                                 window=np.hanning(analyzer.n_fft + 2)[1:-1]))
-        sgram = 20.0 * np.log10(np.maximum(sgram, np.max(sgram) / 1e6))
-        sgram = sgram - np.mean(sgram)
-        # High-pass filter onset emphasis
-        # [:-1,] discards top bin (nyquist) of sgram so bins fit in 8 bits
-        # spectrogram enhancement
-        if self.illustrate_hpf:
-            HPF_POLE = 0.98
-            sgram = np.array([scipy.signal.lfilter([1, -1],
-                                                   [1, -HPF_POLE], s_row)
-                              for s_row in sgram])[:-1, ]
-        sgram = sgram - np.max(sgram)
-        librosa.display.specshow(sgram, sr=sr, hop_length=analyzer.n_hop,
-                                 y_axis='linear', x_axis='time',
-                                 cmap='gray_r', vmin=-80.0, vmax=0)
         # Do the match?
         q_hashes = analyzer.wavfile2hashes(filename)
-        # Run query, get back the hashes for match zero
-        results, matchhashes = self.match_hashes(ht, q_hashes, hashesfor=0)
+        # Run query
+        #results = self.match_hashes(ht, q_hashes)
         if self.sort_by_time:
-            results = sorted(results, key=lambda x: -x[2])
+            results = sorted(results, key=lambda x: x[2])
+        # Make the spectrograms
+        fig, ax = plt.subplots()
+        def spectrogram(audio):
+            (d, sr) = audio
+            sgram = np.abs(stft.stft(d, n_fft=analyzer.n_fft,
+                                     hop_length=analyzer.n_hop,
+                                     window=np.hanning(analyzer.n_fft + 2)[1:-1]))
+            sgram = 20.0 * np.log10(np.maximum(sgram, np.max(sgram) / 1e6))
+            sgram = sgram - np.mean(sgram)
+            # High-pass filter onset emphasis
+            # [:-1,] discards top bin (nyquist) of sgram so bins fit in 8 bits
+            # spectrogram enhancement
+            if self.illustrate_hpf:
+                HPF_POLE = 0.98
+                sgram = np.array([scipy.signal.lfilter([1, -1],
+                                                       [1, -HPF_POLE], s_row)
+                                  for s_row in sgram])[:-1, ]
+            sgram = sgram - np.max(sgram)
+            librosa.display.specshow(sgram, sr=sr, hop_length=analyzer.n_hop,
+                                     y_axis='linear', x_axis='time',
+                                     cmap='gray_r', vmin=-80.0, vmax=0, ax=None)
+        spectrogram(audio_read.audio_read(filename,
+                                          sr=analyzer.target_sr,
+                                          channels=1)),
         # Convert the hashes to landmarks
+        (tophitid, nhashaligned, aligntime, nhashraw, rank, min_time, max_time) = results[0]
         lms = audfprint_analyze.hashes2landmarks(q_hashes)
+        matchhashes = None
+        otherhashes = []
+        hits = ht.get_hits(q_hashes)
+        t_hop = analyzer.n_hop / analyzer.target_sr
+        min_time_of_query = aligntime - q_hashes[0][0]  - (1 / t_hop)
+        max_time_of_query = aligntime + q_hashes[-1][0] + (1 / t_hop)
+        reference_landmarks = [(t - aligntime, bin1, bin2, dt)
+                               for (t, bin1, bin2, dt)
+                               in audfprint_analyze.hashes2landmarks(ht.retrieve(results[0][0]))]
+        for idx in range(0, len(results)):
+            (id, _, aligntime, _, _, min_time, max_time) = results[idx]
+            hashes = self._unique_match_hashes(id, hits, aligntime)
+            if idx == 0:
+                matchhashes = hashes
+            elif id == tophitid and min_time_of_query <= aligntime + min_time and aligntime + max_time <= max_time_of_query:
+                otherhashes.append(hashes)
         mlms = audfprint_analyze.hashes2landmarks(matchhashes)
         # Overplot on the spectrogram
-        plt.plot(np.array([[x[0], x[0] + x[3]] for x in lms]).T,
-                 np.array([[x[1], x[2]] for x in lms]).T,
-                 '.-g')
-        plt.plot(np.array([[x[0], x[0] + x[3]] for x in mlms]).T,
-                 np.array([[x[1], x[2]] for x in mlms]).T,
-                 '.-r')
+        hscale = analyzer.target_sr/analyzer.n_fft
+        vscale = analyzer.n_hop/analyzer.target_sr
+        def p(landmarks, *args, **kwargs):
+            return ax.plot(np.array([[x[0] * vscale, (x[0] + x[3]) * vscale] for x in landmarks]).T,
+                           np.array([[x[1] * hscale, x[2] * hscale] for x in landmarks]).T,
+                           *args,
+                           **kwargs)
+        plots = [p(lms, '.-g', color='green', label="Query"),
+                 p(reference_landmarks, '.-b', color='blue', label="Reference"),
+                 p(mlms, '.-r', color='red', label="Matching Hashes")]
+        if len(otherhashes) > 0:
+            plots.append(p(audfprint_analyze.hashes2landmarks(np.concatenate(otherhashes)), '.-y', color='orange', label="Other Matches"))
+
         # Add title
-        plt.title(filename + " : Matched as " + ht.names[results[0][0]]
-                  + (" with %d of %d hashes" % (len(matchhashes),
-                                                len(q_hashes))))
+        ax.set_title(filename + " : Matched as " + str(ht.hashesperid[results[0][0]])
+                     + (" with %d of %d hashes" % (len(matchhashes),
+                                                   len(q_hashes))))
+        # Hash Selector
+        rax = plt.axes([0.01, 0.01, 0.3, 0.15])
+        labels = [p[0].get_label() for p in plots]
+        check = matplotlib.widgets.CheckButtons(rax,
+                                                labels,
+                                                [p[0].get_visible() for p in plots])
+        def click_checkbox(label):
+            index = labels.index(label)
+            plot = plots[index]
+            for l in plot:
+                l.set_visible(not l.get_visible())
+            plt.draw()
+        check.on_clicked(click_checkbox)
         # Display
         plt.show()
         # Return
         return results
-
 
 def localtest():
     """Function to provide quick test"""
